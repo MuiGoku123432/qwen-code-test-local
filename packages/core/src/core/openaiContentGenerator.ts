@@ -30,6 +30,7 @@ import { logApiResponse } from '../telemetry/loggers.js';
 import { ApiResponseEvent } from '../telemetry/types.js';
 import { Config } from '../config/config.js';
 import { openaiLogger } from '../utils/openaiLogger.js';
+import { debugLogger } from '../utils/debugLogger.js';
 
 // OpenAI API type definitions for logging
 interface OpenAIToolCall {
@@ -122,7 +123,7 @@ export class OpenAIContentGenerator implements ContentGenerator {
       timeoutConfig.maxRetries = contentGeneratorConfig.maxRetries;
     }
 
-    this.client = new OpenAI({
+    const openaiConfig = {
       apiKey:
         authType === 'azure-openai' || authType === 'apim-openai'
           ? 'dummy'
@@ -132,7 +133,22 @@ export class OpenAIContentGenerator implements ContentGenerator {
       timeout: timeoutConfig.timeout,
       maxRetries: timeoutConfig.maxRetries,
       defaultQuery: this.buildDefaultQuery(authType),
-    });
+    };
+
+    this.client = new OpenAI(openaiConfig);
+
+    // Debug logging for APIM/Azure OpenAI configurations
+    if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
+      debugLogger.log(`OpenAI Client Initialized - Auth Type: ${authType}`);
+      debugLogger.log('Client Configuration', {
+        authType,
+        baseURL,
+        defaultHeaders: { ...defaultHeaders, 'api-key': defaultHeaders['api-key'] ? '***MASKED***' : undefined },
+        timeout: timeoutConfig.timeout,
+        maxRetries: timeoutConfig.maxRetries,
+        defaultQuery: this.buildDefaultQuery(authType),
+      });
+    }
   }
 
   /**
@@ -261,6 +277,11 @@ export class OpenAIContentGenerator implements ContentGenerator {
   ): Promise<GenerateContentResponse> {
     const startTime = Date.now();
     const messages = this.convertToOpenAIFormat(request);
+    const contentGeneratorConfig = this.config.getContentGeneratorConfig();
+    const authType = contentGeneratorConfig?.authType;
+    
+    // Create request ID for debug tracking
+    const requestId = debugLogger.createRequestId();
 
     try {
       // Build sampling parameters with clear priority:
@@ -282,13 +303,39 @@ export class OpenAIContentGenerator implements ContentGenerator {
           request.config.tools,
         );
       }
-      // console.log('createParams', createParams);
+
+      // Debug logging for APIM/Azure OpenAI requests
+      if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
+        const { baseURL, defaultHeaders } = this.buildEndpointConfig(authType, '');
+        const fullUrl = `${baseURL}/chat/completions`;
+        
+        debugLogger.logRequest(requestId, {
+          url: fullUrl,
+          headers: { ...defaultHeaders, 'Content-Type': 'application/json' },
+          body: createParams,
+          clientConfig: {
+            baseURL,
+            timeout: this.client.timeout,
+            maxRetries: this.client.maxRetries,
+          }
+        });
+      }
+
       const completion = (await this.client.chat.completions.create(
         createParams,
       )) as ChatCompletion;
 
       const response = this.convertToGeminiFormat(completion);
       const durationMs = Date.now() - startTime;
+
+      // Debug logging for successful APIM/Azure OpenAI responses
+      if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
+        debugLogger.logResponse(requestId, {
+          status: 200, // Assume 200 if we got here
+          data: completion,
+          duration: durationMs
+        });
+      }
 
       // Log API response event for UI telemetry
       const responseEvent = new ApiResponseEvent(
@@ -311,6 +358,11 @@ export class OpenAIContentGenerator implements ContentGenerator {
       return response;
     } catch (error) {
       const durationMs = Date.now() - startTime;
+
+      // Debug logging for APIM/Azure OpenAI errors
+      if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
+        debugLogger.logError(requestId, error);
+      }
 
       // Identify timeout errors specifically
       const isTimeoutError = this.isTimeoutError(error);
@@ -388,6 +440,11 @@ export class OpenAIContentGenerator implements ContentGenerator {
   ): Promise<AsyncGenerator<GenerateContentResponse>> {
     const startTime = Date.now();
     const messages = this.convertToOpenAIFormat(request);
+    const contentGeneratorConfig = this.config.getContentGeneratorConfig();
+    const authType = contentGeneratorConfig?.authType;
+    
+    // Create request ID for debug tracking
+    const requestId = debugLogger.createRequestId();
 
     try {
       // Build sampling parameters with clear priority
@@ -407,6 +464,23 @@ export class OpenAIContentGenerator implements ContentGenerator {
         createParams.tools = await this.convertGeminiToolsToOpenAI(
           request.config.tools,
         );
+      }
+
+      // Debug logging for APIM/Azure OpenAI streaming requests
+      if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
+        const { baseURL, defaultHeaders } = this.buildEndpointConfig(authType, '');
+        const fullUrl = `${baseURL}/chat/completions`;
+        
+        debugLogger.logRequest(requestId, {
+          url: fullUrl,
+          headers: { ...defaultHeaders, 'Content-Type': 'application/json' },
+          body: { ...createParams, stream: true },
+          clientConfig: {
+            baseURL,
+            timeout: this.client.timeout,
+            maxRetries: this.client.maxRetries,
+          }
+        });
       }
 
       // console.log('createParams', createParams);
@@ -460,6 +534,11 @@ export class OpenAIContentGenerator implements ContentGenerator {
           }
         } catch (error) {
           const durationMs = Date.now() - startTime;
+
+          // Debug logging for APIM/Azure OpenAI streaming errors
+          if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
+            debugLogger.logError(requestId, error);
+          }
 
           // Identify timeout errors specifically for streaming
           const isTimeoutError = this.isTimeoutError(error);
@@ -533,6 +612,11 @@ export class OpenAIContentGenerator implements ContentGenerator {
       return wrappedGenerator();
     } catch (error) {
       const durationMs = Date.now() - startTime;
+
+      // Debug logging for APIM/Azure OpenAI streaming setup errors
+      if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
+        debugLogger.logError(requestId, error);
+      }
 
       // Identify timeout errors specifically for streaming setup
       const isTimeoutError = this.isTimeoutError(error);
