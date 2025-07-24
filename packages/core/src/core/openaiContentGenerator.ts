@@ -30,7 +30,7 @@ import { logApiResponse } from '../telemetry/loggers.js';
 import { ApiResponseEvent } from '../telemetry/types.js';
 import { Config } from '../config/config.js';
 import { openaiLogger } from '../utils/openaiLogger.js';
-import { debugLogger } from '../utils/debugLogger.js';
+import { debugLogger, createDebugHttpAgents } from '../utils/debugLogger.js';
 
 // OpenAI API type definitions for logging
 interface OpenAIToolCall {
@@ -134,6 +134,13 @@ export class OpenAIContentGenerator implements ContentGenerator {
       maxRetries: timeoutConfig.maxRetries,
       defaultQuery: this.buildDefaultQuery(authType),
     };
+
+    // Add debug HTTP agents for APIM/Azure OpenAI when debugging is enabled
+    if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
+      const debugAgents = createDebugHttpAgents();
+      (openaiConfig as any).httpAgent = debugAgents.httpsAgent;
+      (openaiConfig as any).agent = debugAgents.httpAgent;
+    }
 
     this.client = new OpenAI(openaiConfig);
 

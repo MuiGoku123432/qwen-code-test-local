@@ -6,6 +6,9 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as http from 'node:http';
+import * as https from 'node:https';
+import { Socket } from 'node:net';
 
 class DebugLogger {
   private logFile: string;
@@ -135,6 +138,87 @@ class DebugLogger {
   isDebugEnabled(): boolean {
     return this.isEnabled;
   }
+
+  logHttpRequest(url: string, method: string, headers: Record<string, string | string[]>): void {
+    if (!this.isEnabled) return;
+
+    // Mask sensitive headers for logging
+    const maskedHeaders = { ...headers };
+    if (maskedHeaders['api-key']) {
+      maskedHeaders['api-key'] = '***MASKED***';
+    }
+    if (maskedHeaders['Authorization']) {
+      maskedHeaders['Authorization'] = '***MASKED***';
+    }
+
+    this.log('HTTP Agent Intercept', {
+      method,
+      url,
+      headers: maskedHeaders
+    });
+  }
+}
+
+/**
+ * Debug HTTPS Agent that logs actual HTTP requests
+ */
+class DebugHttpsAgent extends https.Agent {
+  private logger: DebugLogger;
+
+  constructor(logger: DebugLogger, options?: https.AgentOptions) {
+    super(options);
+    this.logger = logger;
+  }
+
+  // Override the addRequest method to intercept requests
+  addRequest(req: any, options: any): void {
+    // Log the actual request details before adding to agent
+    if (options.host && options.port) {
+      const protocol = 'https:';
+      const url = `${protocol}//${options.host}:${options.port}${options.path || '/'}`;
+      this.logger.logHttpRequest(url, options.method || 'GET', req.getHeaders ? req.getHeaders() : {});
+    }
+
+    // Call parent method properly
+    const parentAgent = Object.getPrototypeOf(Object.getPrototypeOf(this));
+    parentAgent.addRequest.call(this, req, options);
+  }
+}
+
+/**
+ * Debug HTTP Agent that logs actual HTTP requests
+ */
+class DebugHttpAgent extends http.Agent {
+  private logger: DebugLogger;
+
+  constructor(logger: DebugLogger, options?: http.AgentOptions) {
+    super(options);
+    this.logger = logger;
+  }
+
+  // Override the addRequest method to intercept requests
+  addRequest(req: any, options: any): void {
+    // Log the actual request details before adding to agent
+    if (options.host && options.port) {
+      const protocol = 'http:';
+      const url = `${protocol}//${options.host}:${options.port}${options.path || '/'}`;
+      this.logger.logHttpRequest(url, options.method || 'GET', req.getHeaders ? req.getHeaders() : {});
+    }
+
+    // Call parent method properly
+    const parentAgent = Object.getPrototypeOf(Object.getPrototypeOf(this));
+    parentAgent.addRequest.call(this, req, options);
+  }
 }
 
 export const debugLogger = new DebugLogger();
+
+/**
+ * Create debug HTTP agents for intercepting actual requests
+ */
+export function createDebugHttpAgents() {
+  return {
+    httpsAgent: new DebugHttpsAgent(debugLogger),
+    httpAgent: new DebugHttpAgent(debugLogger)
+  };
+}
