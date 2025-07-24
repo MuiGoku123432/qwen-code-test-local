@@ -45,6 +45,41 @@ export const validateAuthMethod = (authMethod: string): string | null => {
     return null;
   }
 
+  if (authMethod === AuthType.USE_AZURE_OPENAI) {
+    const requiredVars = [];
+    if (!process.env.AZURE_OPENAI_ENDPOINT)
+      requiredVars.push('AZURE_OPENAI_ENDPOINT');
+    if (!process.env.AZURE_OPENAI_DEPLOYMENT_NAME)
+      requiredVars.push('AZURE_OPENAI_DEPLOYMENT_NAME');
+
+    // Check for either API key or AD token
+    const hasApiKey = !!process.env.AZURE_OPENAI_API_KEY;
+    const hasAdToken = !!process.env.AZURE_OPENAI_AD_TOKEN;
+
+    if (!hasApiKey && !hasAdToken) {
+      requiredVars.push('AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN');
+    }
+
+    if (requiredVars.length > 0) {
+      return `Azure OpenAI configuration incomplete. Missing: ${requiredVars.join(', ')}. Add these to your environment and try again.`;
+    }
+    return null;
+  }
+
+  if (authMethod === AuthType.USE_APIM_OPENAI) {
+    const requiredVars = [];
+    if (!process.env.APIM_ENDPOINT) requiredVars.push('APIM_ENDPOINT');
+    if (!process.env.APIM_SUBSCRIPTION_KEY)
+      requiredVars.push('APIM_SUBSCRIPTION_KEY');
+    if (!process.env.APIM_DEPLOYMENT_NAME)
+      requiredVars.push('APIM_DEPLOYMENT_NAME');
+
+    if (requiredVars.length > 0) {
+      return `APIM configuration incomplete. Missing: ${requiredVars.join(', ')}. Add these to your environment and try again.`;
+    }
+    return null;
+  }
+
   return 'Invalid auth method selected.';
 };
 
@@ -58,4 +93,38 @@ export const setOpenAIBaseUrl = (baseUrl: string): void => {
 
 export const setOpenAIModel = (model: string): void => {
   process.env.OPENAI_MODEL = model;
+};
+
+export const setAzureOpenAIConfig = (config: {
+  endpoint: string;
+  apiKey?: string;
+  adToken?: string;
+  deploymentName: string;
+  apiVersion?: string;
+}): void => {
+  process.env.AZURE_OPENAI_ENDPOINT = config.endpoint;
+  if (config.apiKey) {
+    process.env.AZURE_OPENAI_API_KEY = config.apiKey;
+  }
+  if (config.adToken) {
+    process.env.AZURE_OPENAI_AD_TOKEN = config.adToken;
+  }
+  process.env.AZURE_OPENAI_DEPLOYMENT_NAME = config.deploymentName;
+  if (config.apiVersion) {
+    process.env.AZURE_OPENAI_API_VERSION = config.apiVersion;
+  }
+};
+
+export const setApimOpenAIConfig = (config: {
+  endpoint: string;
+  subscriptionKey: string;
+  deploymentName: string;
+  apiVersion?: string;
+}): void => {
+  process.env.APIM_ENDPOINT = config.endpoint;
+  process.env.APIM_SUBSCRIPTION_KEY = config.subscriptionKey;
+  process.env.APIM_DEPLOYMENT_NAME = config.deploymentName;
+  if (config.apiVersion) {
+    process.env.APIM_API_VERSION = config.apiVersion;
+  }
 };

@@ -94,7 +94,15 @@ export class OpenAIContentGenerator implements ContentGenerator {
   constructor(apiKey: string, model: string, config: Config) {
     this.model = model;
     this.config = config;
-    const baseURL = process.env.OPENAI_BASE_URL || '';
+
+    const contentGeneratorConfig = this.config.getContentGeneratorConfig();
+    const authType = contentGeneratorConfig?.authType;
+
+    // Build endpoint URL and headers based on auth type
+    const { baseURL, defaultHeaders } = this.buildEndpointConfig(
+      authType,
+      apiKey,
+    );
 
     // Configure timeout settings - using progressive timeouts
     const timeoutConfig = {
@@ -107,7 +115,6 @@ export class OpenAIContentGenerator implements ContentGenerator {
     };
 
     // Allow config to override timeout settings
-    const contentGeneratorConfig = this.config.getContentGeneratorConfig();
     if (contentGeneratorConfig?.timeout) {
       timeoutConfig.timeout = contentGeneratorConfig.timeout;
     }
@@ -116,11 +123,104 @@ export class OpenAIContentGenerator implements ContentGenerator {
     }
 
     this.client = new OpenAI({
-      apiKey,
+      apiKey:
+        authType === 'azure-openai' || authType === 'apim-openai'
+          ? 'dummy'
+          : apiKey,
       baseURL,
+      defaultHeaders,
       timeout: timeoutConfig.timeout,
       maxRetries: timeoutConfig.maxRetries,
+      defaultQuery: this.buildDefaultQuery(authType),
     });
+  }
+
+  /**
+   * Build endpoint configuration for different auth types
+   */
+  private buildEndpointConfig(
+    authType: string | undefined,
+    _fallbackApiKey: string,
+  ): {
+    baseURL: string;
+    defaultHeaders: Record<string, string>;
+  } {
+    const defaultHeaders: Record<string, string> = {};
+    let baseURL = '';
+
+    switch (authType) {
+      case 'azure-openai': {
+        const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+        const deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+
+        if (!endpoint || !deploymentName) {
+          throw new Error(
+            'Azure OpenAI configuration incomplete. Missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_DEPLOYMENT_NAME',
+          );
+        }
+
+        // Build base URL with API version as query parameter
+        baseURL = `${endpoint}/openai/deployments/${deploymentName}`;
+
+        // Add authentication headers
+        if (process.env.AZURE_OPENAI_AD_TOKEN) {
+          defaultHeaders['Authorization'] =
+            `Bearer ${process.env.AZURE_OPENAI_AD_TOKEN}`;
+        } else if (process.env.AZURE_OPENAI_API_KEY) {
+          defaultHeaders['api-key'] = process.env.AZURE_OPENAI_API_KEY;
+        }
+
+        break;
+      }
+
+      case 'apim-openai': {
+        const endpoint = process.env.APIM_ENDPOINT;
+        const deploymentName = process.env.APIM_DEPLOYMENT_NAME;
+        const subscriptionKey = process.env.APIM_SUBSCRIPTION_KEY;
+
+        if (!endpoint || !deploymentName || !subscriptionKey) {
+          throw new Error(
+            'APIM configuration incomplete. Missing APIM_ENDPOINT, APIM_DEPLOYMENT_NAME, or APIM_SUBSCRIPTION_KEY',
+          );
+        }
+
+        // Build base URL with API version as query parameter
+        baseURL = `${endpoint}/openai/deployments/${deploymentName}`;
+
+        // Add APIM subscription key
+        defaultHeaders['Ocp-Apim-Subscription-Key'] = subscriptionKey;
+
+        break;
+      }
+
+      default: {
+        // Standard OpenAI configuration
+        baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+        break;
+      }
+    }
+
+    return { baseURL, defaultHeaders };
+  }
+
+  /**
+   * Build default query parameters for different auth types
+   */
+  private buildDefaultQuery(
+    authType: string | undefined,
+  ): Record<string, string> | undefined {
+    switch (authType) {
+      case 'azure-openai': {
+        const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-10-21';
+        return { 'api-version': apiVersion };
+      }
+      case 'apim-openai': {
+        const apiVersion = process.env.APIM_API_VERSION || '2024-10-21';
+        return { 'api-version': apiVersion };
+      }
+      default:
+        return undefined;
+    }
   }
 
   /**

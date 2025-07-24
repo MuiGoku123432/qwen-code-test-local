@@ -44,6 +44,8 @@ export enum AuthType {
   USE_VERTEX_AI = 'vertex-ai',
   CLOUD_SHELL = 'cloud-shell',
   USE_OPENAI = 'openai',
+  USE_AZURE_OPENAI = 'azure-openai',
+  USE_APIM_OPENAI = 'apim-openai',
 }
 
 export type ContentGeneratorConfig = {
@@ -121,6 +123,33 @@ export async function createContentGeneratorConfig(
     return contentGeneratorConfig;
   }
 
+  if (authType === AuthType.USE_AZURE_OPENAI) {
+    const azureApiKey = process.env.AZURE_OPENAI_API_KEY;
+    const azureAdToken = process.env.AZURE_OPENAI_AD_TOKEN;
+    const azureEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
+    const azureDeployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+
+    if ((azureApiKey || azureAdToken) && azureEndpoint && azureDeployment) {
+      contentGeneratorConfig.apiKey = azureApiKey || 'dummy'; // Use dummy if using AD token
+      contentGeneratorConfig.model = azureDeployment; // Use deployment name as model
+
+      return contentGeneratorConfig;
+    }
+  }
+
+  if (authType === AuthType.USE_APIM_OPENAI) {
+    const apimEndpoint = process.env.APIM_ENDPOINT;
+    const apimSubscriptionKey = process.env.APIM_SUBSCRIPTION_KEY;
+    const apimDeployment = process.env.APIM_DEPLOYMENT_NAME;
+
+    if (apimEndpoint && apimSubscriptionKey && apimDeployment) {
+      contentGeneratorConfig.apiKey = 'dummy'; // APIM handles auth via subscription key
+      contentGeneratorConfig.model = apimDeployment; // Use deployment name as model
+
+      return contentGeneratorConfig;
+    }
+  }
+
   return contentGeneratorConfig;
 }
 
@@ -160,9 +189,13 @@ export async function createContentGenerator(
     return googleGenAI.models;
   }
 
-  if (config.authType === AuthType.USE_OPENAI) {
+  if (
+    config.authType === AuthType.USE_OPENAI ||
+    config.authType === AuthType.USE_AZURE_OPENAI ||
+    config.authType === AuthType.USE_APIM_OPENAI
+  ) {
     if (!config.apiKey) {
-      throw new Error('OpenAI API key is required');
+      throw new Error('API key or configuration is required');
     }
 
     // Import OpenAIContentGenerator dynamically to avoid circular dependencies
@@ -170,7 +203,7 @@ export async function createContentGenerator(
       './openaiContentGenerator.js'
     );
 
-    // Always use OpenAIContentGenerator, logging is controlled by enableOpenAILogging flag
+    // Use OpenAIContentGenerator for all OpenAI-compatible endpoints
     return new OpenAIContentGenerator(config.apiKey, config.model, gcConfig);
   }
 

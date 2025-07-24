@@ -45,7 +45,11 @@ export function AuthDialog({
     initialErrorMessage || null,
   );
   const [showOpenAIKeyPrompt, setShowOpenAIKeyPrompt] = useState(false);
-  const items = [{ label: 'OpenAI', value: AuthType.USE_OPENAI }];
+  const items = [
+    { label: 'OpenAI', value: AuthType.USE_OPENAI },
+    { label: 'Azure OpenAI', value: AuthType.USE_AZURE_OPENAI },
+    { label: 'Azure APIM', value: AuthType.USE_APIM_OPENAI },
+  ];
 
   const initialAuthIndex = Math.max(
     0,
