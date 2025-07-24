@@ -75,7 +75,7 @@ export const validateAuthMethod = (authMethod: string): string | null => {
       requiredVars.push('APIM_DEPLOYMENT_NAME');
 
     if (requiredVars.length > 0) {
-      return `APIM configuration incomplete. Missing: ${requiredVars.join(', ')}. Add these to your environment and try again.`;
+      return `APIM configuration incomplete. Missing: ${requiredVars.join(', ')}. Add these to your environment and try again. Note: APIM_SUBSCRIPTION_KEY should be your API key that APIM forwards to Azure OpenAI.`;
     }
     return null;
   }

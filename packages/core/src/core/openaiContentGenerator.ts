@@ -187,8 +187,8 @@ export class OpenAIContentGenerator implements ContentGenerator {
         // Build base URL with API version as query parameter
         baseURL = `${endpoint}/openai/deployments/${deploymentName}`;
 
-        // Add APIM subscription key
-        defaultHeaders['Ocp-Apim-Subscription-Key'] = subscriptionKey;
+        // Add API key header (APIM forwards this to Azure OpenAI backend)
+        defaultHeaders['api-key'] = subscriptionKey;
 
         break;
       }

@@ -81,9 +81,11 @@ export AZURE_OPENAI_API_VERSION="2024-10-21"  # Optional, defaults to 2024-10-21
 ```bash
 export APIM_ENDPOINT="https://your-apim.azure-api.net"
 export APIM_DEPLOYMENT_NAME="your-deployment-name"
-export APIM_SUBSCRIPTION_KEY="your_subscription_key"
+export APIM_SUBSCRIPTION_KEY="your_api_key"  # API key that APIM forwards to Azure OpenAI
 export APIM_API_VERSION="2024-10-21"  # Optional, defaults to 2024-10-21
 ```
+
+**Note**: The `APIM_SUBSCRIPTION_KEY` should be the API key that your APIM instance forwards to the Azure OpenAI backend. This will be sent as an `api-key` header.
 
 ## Usage Examples
 
