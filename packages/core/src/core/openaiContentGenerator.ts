@@ -307,10 +307,21 @@ export class OpenAIContentGenerator implements ContentGenerator {
       // Debug logging for APIM/Azure OpenAI requests
       if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
         const { baseURL, defaultHeaders } = this.buildEndpointConfig(authType, '');
+        const defaultQuery = this.buildDefaultQuery(authType);
         const fullUrl = `${baseURL}/chat/completions`;
+        
+        // Build complete URL with query parameters
+        let completeUrl = fullUrl;
+        if (defaultQuery && Object.keys(defaultQuery).length > 0) {
+          const queryString = new URLSearchParams(defaultQuery).toString();
+          completeUrl = `${fullUrl}?${queryString}`;
+        }
         
         debugLogger.logRequest(requestId, {
           url: fullUrl,
+          baseURL,
+          fullURL: completeUrl,
+          defaultQuery,
           headers: { ...defaultHeaders, 'Content-Type': 'application/json' },
           body: createParams,
           clientConfig: {
@@ -469,10 +480,21 @@ export class OpenAIContentGenerator implements ContentGenerator {
       // Debug logging for APIM/Azure OpenAI streaming requests
       if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
         const { baseURL, defaultHeaders } = this.buildEndpointConfig(authType, '');
+        const defaultQuery = this.buildDefaultQuery(authType);
         const fullUrl = `${baseURL}/chat/completions`;
+        
+        // Build complete URL with query parameters
+        let completeUrl = fullUrl;
+        if (defaultQuery && Object.keys(defaultQuery).length > 0) {
+          const queryString = new URLSearchParams(defaultQuery).toString();
+          completeUrl = `${fullUrl}?${queryString}`;
+        }
         
         debugLogger.logRequest(requestId, {
           url: fullUrl,
+          baseURL,
+          fullURL: completeUrl,
+          defaultQuery,
           headers: { ...defaultHeaders, 'Content-Type': 'application/json' },
           body: { ...createParams, stream: true },
           clientConfig: {

@@ -53,11 +53,28 @@ class DebugLogger {
     headers: Record<string, string>;
     body?: any;
     clientConfig?: any;
+    baseURL?: string;
+    fullURL?: string;
+    defaultQuery?: Record<string, string>;
   }): void {
     if (!this.isEnabled) return;
 
     this.log(`Request ${requestId} - Starting`);
-    this.log(`Request ${requestId} - URL`, config.url);
+    
+    // Log base URL and full URL separately for clarity
+    if (config.baseURL) {
+      this.log(`Request ${requestId} - Base URL`, config.baseURL);
+    }
+    if (config.fullURL) {
+      this.log(`Request ${requestId} - Full URL`, config.fullURL);
+    } else {
+      this.log(`Request ${requestId} - URL`, config.url);
+    }
+    
+    // Log default query parameters separately
+    if (config.defaultQuery) {
+      this.log(`Request ${requestId} - Default Query Parameters`, config.defaultQuery);
+    }
     
     // Mask sensitive headers for logging
     const maskedHeaders = { ...config.headers };
