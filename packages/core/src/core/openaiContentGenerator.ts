@@ -30,7 +30,7 @@ import { logApiResponse } from '../telemetry/loggers.js';
 import { ApiResponseEvent } from '../telemetry/types.js';
 import { Config } from '../config/config.js';
 import { openaiLogger } from '../utils/openaiLogger.js';
-import { debugLogger, createDebugHttpAgents } from '../utils/debugLogger.js';
+import { debugLogger, createDebugFetchWrapper } from '../utils/debugLogger.js';
 
 // OpenAI API type definitions for logging
 interface OpenAIToolCall {
@@ -83,6 +83,7 @@ export class OpenAIContentGenerator implements ContentGenerator {
   private client: OpenAI;
   private model: string;
   private config: Config;
+  private fetchWrapper: ReturnType<typeof createDebugFetchWrapper> | null = null;
   private streamingToolCalls: Map<
     number,
     {
@@ -135,14 +136,12 @@ export class OpenAIContentGenerator implements ContentGenerator {
       defaultQuery: this.buildDefaultQuery(authType),
     };
 
-    // Add debug HTTP agents for APIM/Azure OpenAI when debugging is enabled
-    if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
-      const debugAgents = createDebugHttpAgents();
-      (openaiConfig as any).httpAgent = debugAgents.httpsAgent;
-      (openaiConfig as any).agent = debugAgents.httpAgent;
-    }
-
     this.client = new OpenAI(openaiConfig);
+
+    // Initialize fetch wrapper for APIM/Azure OpenAI when debugging is enabled
+    if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
+      this.fetchWrapper = createDebugFetchWrapper();
+    }
 
     // Debug logging for APIM/Azure OpenAI configurations
     if (debugLogger.isDebugEnabled() && (authType === 'apim-openai' || authType === 'azure-openai')) {
@@ -339,9 +338,12 @@ export class OpenAIContentGenerator implements ContentGenerator {
         });
       }
 
-      const completion = (await this.client.chat.completions.create(
-        createParams,
-      )) as ChatCompletion;
+      // Use fetch interception if enabled
+      const completion = this.fetchWrapper 
+        ? await this.fetchWrapper.withInterception(async () => 
+            (await this.client.chat.completions.create(createParams)) as ChatCompletion
+          )
+        : (await this.client.chat.completions.create(createParams)) as ChatCompletion;
 
       const response = this.convertToGeminiFormat(completion);
       const durationMs = Date.now() - startTime;
@@ -514,9 +516,12 @@ export class OpenAIContentGenerator implements ContentGenerator {
 
       // console.log('createParams', createParams);
 
-      const stream = (await this.client.chat.completions.create(
-        createParams,
-      )) as AsyncIterable<ChatCompletionChunk>;
+      // Use fetch interception if enabled
+      const stream = this.fetchWrapper 
+        ? await this.fetchWrapper.withInterception(async () => 
+            (await this.client.chat.completions.create(createParams)) as AsyncIterable<ChatCompletionChunk>
+          )
+        : (await this.client.chat.completions.create(createParams)) as AsyncIterable<ChatCompletionChunk>;
 
       const originalStream = this.streamGenerator(stream);
 
@@ -831,10 +836,18 @@ export class OpenAIContentGenerator implements ContentGenerator {
     }
 
     try {
-      const embedding = await this.client.embeddings.create({
-        model: 'text-embedding-ada-002', // Default embedding model
-        input: text,
-      });
+      // Use fetch interception if enabled
+      const embedding = this.fetchWrapper 
+        ? await this.fetchWrapper.withInterception(async () => 
+            await this.client.embeddings.create({
+              model: 'text-embedding-ada-002', // Default embedding model
+              input: text,
+            })
+          )
+        : await this.client.embeddings.create({
+            model: 'text-embedding-ada-002', // Default embedding model
+            input: text,
+          });
 
       return {
         embeddings: [

@@ -6,9 +6,6 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as http from 'node:http';
-import * as https from 'node:https';
-import { Socket } from 'node:net';
 
 class DebugLogger {
   private logFile: string;
@@ -139,7 +136,7 @@ class DebugLogger {
     return this.isEnabled;
   }
 
-  logHttpRequest(url: string, method: string, headers: Record<string, string | string[]>): void {
+  logFetchRequest(url: string, method: string, headers: Record<string, string | string[]>, body?: any): void {
     if (!this.isEnabled) return;
 
     // Mask sensitive headers for logging
@@ -151,74 +148,119 @@ class DebugLogger {
       maskedHeaders['Authorization'] = '***MASKED***';
     }
 
-    this.log('HTTP Agent Intercept', {
+    this.log('Fetch Intercept', {
       method,
       url,
-      headers: maskedHeaders
+      headers: maskedHeaders,
+      bodyPreview: body ? JSON.stringify(body).substring(0, 200) + '...' : undefined
     });
   }
 }
 
 /**
- * Debug HTTPS Agent that logs actual HTTP requests
+ * Debug Fetch Wrapper that intercepts fetch calls to log actual HTTP requests
  */
-class DebugHttpsAgent extends https.Agent {
+class DebugFetchWrapper {
   private logger: DebugLogger;
+  private originalFetch: typeof fetch;
+  private isIntercepting: boolean = false;
 
-  constructor(logger: DebugLogger, options?: https.AgentOptions) {
-    super(options);
+  constructor(logger: DebugLogger) {
     this.logger = logger;
+    this.originalFetch = globalThis.fetch;
   }
 
-  // Override the addRequest method to intercept requests
-  addRequest(req: any, options: any): void {
-    // Log the actual request details before adding to agent
-    if (options.host && options.port) {
-      const protocol = 'https:';
-      const url = `${protocol}//${options.host}:${options.port}${options.path || '/'}`;
-      this.logger.logHttpRequest(url, options.method || 'GET', req.getHeaders ? req.getHeaders() : {});
-    }
+  /**
+   * Create a debug fetch function that logs and delegates to original fetch
+   */
+  private createDebugFetch(): typeof fetch {
+    return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = input instanceof URL ? input.toString() : input instanceof Request ? input.url : input;
+      const method = init?.method || (input instanceof Request ? input.method : 'GET');
+      
+      // Extract headers
+      let headers: Record<string, string> = {};
+      if (init?.headers) {
+        if (init.headers instanceof Headers) {
+          init.headers.forEach((value, key) => {
+            headers[key] = value;
+          });
+        } else if (Array.isArray(init.headers)) {
+          init.headers.forEach(([key, value]) => {
+            headers[key] = value;
+          });
+        } else {
+          headers = { ...init.headers as Record<string, string> };
+        }
+      } else if (input instanceof Request) {
+        input.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+      }
 
-    // Call parent method properly
-    const parentAgent = Object.getPrototypeOf(Object.getPrototypeOf(this));
-    parentAgent.addRequest.call(this, req, options);
+      // Parse body if present
+      let body: any;
+      if (init?.body) {
+        try {
+          if (typeof init.body === 'string') {
+            body = JSON.parse(init.body);
+          } else {
+            body = init.body;
+          }
+        } catch {
+          body = init.body;
+        }
+      }
+
+      // Log the request
+      this.logger.logFetchRequest(url, method, headers, body);
+
+      // Call original fetch
+      return this.originalFetch(input, init);
+    };
+  }
+
+  /**
+   * Temporarily replace global fetch with debug version
+   */
+  startInterception(): void {
+    if (this.isIntercepting) return;
+    
+    this.isIntercepting = true;
+    globalThis.fetch = this.createDebugFetch();
+    this.logger.log('Fetch interception started');
+  }
+
+  /**
+   * Restore original fetch
+   */
+  stopInterception(): void {
+    if (!this.isIntercepting) return;
+    
+    globalThis.fetch = this.originalFetch;
+    this.isIntercepting = false;
+    this.logger.log('Fetch interception stopped');
+  }
+
+  /**
+   * Execute a function with fetch interception enabled
+   */
+  async withInterception<T>(fn: () => Promise<T>): Promise<T> {
+    this.startInterception();
+    try {
+      return await fn();
+    } finally {
+      this.stopInterception();
+    }
   }
 }
 
-/**
- * Debug HTTP Agent that logs actual HTTP requests
- */
-class DebugHttpAgent extends http.Agent {
-  private logger: DebugLogger;
-
-  constructor(logger: DebugLogger, options?: http.AgentOptions) {
-    super(options);
-    this.logger = logger;
-  }
-
-  // Override the addRequest method to intercept requests
-  addRequest(req: any, options: any): void {
-    // Log the actual request details before adding to agent
-    if (options.host && options.port) {
-      const protocol = 'http:';
-      const url = `${protocol}//${options.host}:${options.port}${options.path || '/'}`;
-      this.logger.logHttpRequest(url, options.method || 'GET', req.getHeaders ? req.getHeaders() : {});
-    }
-
-    // Call parent method properly
-    const parentAgent = Object.getPrototypeOf(Object.getPrototypeOf(this));
-    parentAgent.addRequest.call(this, req, options);
-  }
-}
 
 export const debugLogger = new DebugLogger();
 
 /**
- * Create debug HTTP agents for intercepting actual requests
+ * Create debug fetch wrapper for intercepting actual HTTP requests
  */
-export function createDebugHttpAgents() {
-  return {
-    httpsAgent: new DebugHttpsAgent(debugLogger),
-    httpAgent: new DebugHttpAgent(debugLogger)
-  };
+export function createDebugFetchWrapper() {
+  return new DebugFetchWrapper(debugLogger);
 }
